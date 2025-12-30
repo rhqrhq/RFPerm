@@ -1,5 +1,4 @@
-#conformal wrapper:
-
+#Benchmark for the Hu2023(JASA)
 library(MASS)
 library(glmnet)
 library(ANN2)
