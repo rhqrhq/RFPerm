@@ -22,7 +22,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        r-version: ['4.4.0']
+        r-version: ['4.1.1']
 
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,8 @@ jobs:
           r-version: ${{ matrix.r-version }}
       - name: Install dependencies
         run: |
-          install.packages(c("MASS", "remotes", "rcmdcheck", "ranger"))
+          install.packages(c("remotes", "rcmdcheck", "ranger"))
+          remotes::install_version("MASS", version = "7.3-60", repos = "http://cran.us.r-project.org")
           remotes::install_deps(dependencies = TRUE)
         shell: Rscript {0}
       - name: Check
