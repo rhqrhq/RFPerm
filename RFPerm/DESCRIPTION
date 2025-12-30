@@ -1,0 +1,30 @@
+Package: RFPerm
+Type: Package
+Title: Permutation Tests for Drift Using Predictive Errors from Random Forests
+Version: 0.1.0
+Authors@R: c(
+    person(given = "First", family = "Last",
+           email = "you@example.com", role = c("aut", "cre"))
+)
+Description: Implements permutation-based hypothesis tests for dataset shift (drift)
+    using predictive error contrasts, including out-of-bag (OOB) error versus
+    new-batch prediction error for random forest models.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends:
+    R (>= 4.1.0)
+Imports:
+    stats,
+    utils,
+    ranger
+Suggests:
+    testthat (>= 3.0.0),
+    MASS,
+    LaplacesDemon,
+    randomForest,
+    xgboost,
+    lightgbm
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
