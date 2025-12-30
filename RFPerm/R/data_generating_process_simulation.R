@@ -1,5 +1,6 @@
 library(ranger)
 library(MASS)
+library(Rlab)
 
 
 #' Generate MARS-like regression data (Uniform covariates) with optional nuisances
