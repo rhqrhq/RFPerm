@@ -2,15 +2,50 @@ import os
 import statistics
 import sklearn
 import numpy as np
+import pandas as pd
 import xgboost
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from typing import Iterable, Optional, Tuple, Union
+from scipy.stats import multivariate_normal
 from model_registry_class import ModelRegistry
+
 #Generalize this to a general purposed permutation test where the mean of the validation error and the
 #prediction error are compared.
+def LM_generation(n, beta_hat, cor, n_nuisance, eps, mean_X = 0, var_X=1):
+    beta_hat = np.asarray(beta_hat)
+    p = len(beta_hat)
+    corr_matrix = np.zeros((p, p))
+    for i in range(p):
+        for j in range(p):
+            corr_matrix[i, j] = (cor ** abs(i - j)) * var_X
+    X_design = multivariate_normal.rvs(
+        mean=[mean_X] * p,
+        cov=corr_matrix,
+        size=n
+    )
+    Y1 = X_design @ beta_hat
+    random_error = np.random.normal(0, eps, n)
+    X_nuiss = np.random.normal(0, 1, size=(n, n_nuisance))
+    Y = Y1 + random_error
+    df_return = pd.DataFrame(
+        np.column_stack([Y1, X_design, X_nuiss, Y])
+    )
+    colnames = (
+        ["Y1"] +
+        [f"X{i+1}" for i in range(p)] +
+        [f"X_nuis{i+1}" for i in range(n_nuisance)] +
+        ["Y"]
+    )
+    df_return.columns = colnames
+    X_return = df_return.iloc[:, 1:-1]
+    return {
+        "df_return": df_return,
+        "X_return": X_return
+    }
+
 
 
 
@@ -49,7 +84,6 @@ def infer_response_type(Y):
     Infer the types of response in Y:
     Y should either be Numeric or Object
     Return one of the "binary", "continuous" for the downstream modeling procedure.
-
     """
     if Y is None:
         raise ValueError("Y must not be None")
@@ -102,8 +136,8 @@ def RFPerm(df_exist, df_new, loss,
     response_type = infer_response_type(Y_exist)
     pval_list = np.zeros(B)
     for i in range(B):
-        df_exist_B = df_exist.sample(frac = 1, random_state = seed + i)
-        df_new_B = df_new.sample(frac = 1, random_state = seed + i)
+        df_exist_B = df_exist.sample(frac = 1, random_state = seed + i).reset_index(drop = True)
+        df_new_B = df_new.sample(frac = 1, random_state = seed + i).reset_index(drop = True)
         X_exist_B = df_exist_B.iloc[:, :-1]
         Y_exist_B = df_exist_B.iloc[:, -1]
         X_new_B = df_new_B.iloc[:, :-1]
@@ -123,7 +157,7 @@ def RFPerm(df_exist, df_new, loss,
             fitted_model = pipeline.fit(X_exist_B, Y_exist_B)
             rf_model = fitted_model.named_steps['RF']
             #_, rf_model = fitted_model.name_steps['RF']
-            Y_hat_oob = rf_model.oob_prediction_
+            Y_hat_oob = np.asarray(rf_model.oob_prediction_, dtype = float)
         elif response_type == 'binary':
             pipeline = Pipeline(
                 [('scaler', StandardScaler()),
@@ -138,7 +172,7 @@ def RFPerm(df_exist, df_new, loss,
                 )
             fitted_model = pipeline.fit(X_exist_B, Y_exist_B)
             rf_model = fitted_model.named_steps['RF']
-            Y_hat_oob = rf_model.oob_prediction_
+            Y_hat_oob = rf_model.oob_decision_function_[:, 1]
         else:
             pipeline = Pipeline(
                 [('scaler', StandardScaler()),
@@ -153,8 +187,7 @@ def RFPerm(df_exist, df_new, loss,
                 )
             fitted_model = pipeline.fit(X_exist_B, Y_exist_B)
             rf_model = fitted_model.named_steps['RF']
-            Y_hat_oob = rf_model.oob_prediction_
-        Y_hat_oob = np.asarray(rf_model.oob_prediction_, dtype = float)
+            Y_hat_oob = rf_model.oob_decision_function_
         Y_hat_test = pipeline.predict(X_new_B)
         p_one, _ = permTest(
             loss(Y_hat_oob, Y_exist_B),
@@ -219,6 +252,19 @@ def PermValTest(df_exist, df_new, model_component, loss, test_size = 0.3, alpha 
 def MSE(y_pred, y_target):
     return ((np.array(y_pred) - np.array(y_target))**2).tolist()
 
+#The multinomial l2 metric is that argmin_{t}(Y_{t} - Y_target) ** 2 + \sum_{t}Y_{k!=t}-Y\
+#y_pred: (n, n_c)
+#y_target: ranges from 1 to n_c
+def l2_multinomial(y_pred, y_target):
+    n = y_pred.shape[0]
+    n_c = y_pred.shape[1]
+    target_idx = (y_target - 1).astype(int)
+    y_true = np.zeros((n, n_c))
+    y_true[np.arange(n), target_idx] = 1
+    metric = np.sum((y_pred - y_true) ** 2, axis = 1)
+    return metric
+
+
 
 #Testing, for continuous 
 df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
@@ -228,14 +274,44 @@ df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
 RFPerm(df_exist, df_new, loss = MSE, B = 100)
 
 #Binary Outcome:
-df_exist[:, -1] = np.array([np.zeros(500), np.ones(500)])
-df_new[:, -1] = np.array([np.zeros(500), np.ones(500)])
+df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
+    cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
+df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
+    cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
+df_exist.iloc[:, -1] = np.concatenate([np.zeros(500), np.ones(500)])
+df_new.iloc[:, -1] = np.concatenate([np.ones(500), np.zeros(500)])
 RFPerm(df_exist, df_new, loss = MSE, B = 100)
 
 
+#Multinomial Outcome:
+df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
+    cor = 0.3, n_nuisance = 12, eps = 3)['df_return'].iloc[:, 1:]
+df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
+    cor = 0.3, n_nuisance = 12, eps = 3)['df_return'].iloc[:, 1:]
+df_exist.iloc[:, -1] = np.random.choice(np.arange(1, 5), size=1000)
+df_new.iloc[:, -1] = np.random.choice(np.arange(1, 5), size=1000)
+RFPerm(df_exist, df_new, loss = l2_multinomial, B = 100)
 
+#Testing for multinomial outcome here:
+df_exist_B = df_exist.resample(frac = 1, random_state = 2026)
 
+X_exist_B = df_exist.iloc[:, :-1].resample(frac = 1, random_state = 2026)
+Y_exist_B = df_exist.iloc[:, :-1].resample(frac = 1, random_state = 2026)
 
+pipeline = Pipeline(
+                [('scaler', StandardScaler()),
+                  ('RF', RandomForestClassifier(
+                        min_samples_leaf = round(np.sqrt(n_exist)/2),
+                        max_features = round(np.sqrt(p)),
+                        n_estimators = 150,
+                        oob_score = True,
+                        bootstrap = True,
+                        random_state = seed + 1
+                    ))]
+                )
+fitted_model = pipeline.fit(X_exist_B, Y_exist_B)
+rf_model = fitted_model.named_steps['RF']
+Y_hat_oob = rf_model.oob_decision_function_[:, 1]
 
 
 
