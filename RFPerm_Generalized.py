@@ -1,3 +1,5 @@
+#RFPerm Generalized:
+#PermuCATE vimp with the R-risk:
 import os
 import statistics
 import sklearn
@@ -9,44 +11,20 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from typing import Iterable, Optional, Tuple, Union
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal, t
 from model_registry_class import ModelRegistry
 
-#Generalize this to a general purposed permutation test where the mean of the validation error and the
-#prediction error are compared.
-def LM_generation(n, beta_hat, cor, n_nuisance, eps, mean_X = 0, var_X=1):
-    beta_hat = np.asarray(beta_hat)
-    p = len(beta_hat)
-    corr_matrix = np.zeros((p, p))
-    for i in range(p):
-        for j in range(p):
-            corr_matrix[i, j] = (cor ** abs(i - j)) * var_X
-    X_design = multivariate_normal.rvs(
-        mean=[mean_X] * p,
-        cov=corr_matrix,
-        size=n
-    )
-    Y1 = X_design @ beta_hat
-    random_error = np.random.normal(0, eps, n)
-    X_nuiss = np.random.normal(0, 1, size=(n, n_nuisance))
-    Y = Y1 + random_error
-    df_return = pd.DataFrame(
-        np.column_stack([Y1, X_design, X_nuiss, Y])
-    )
-    colnames = (
-        ["Y1"] +
-        [f"X{i+1}" for i in range(p)] +
-        [f"X_nuis{i+1}" for i in range(n_nuisance)] +
-        ["Y"]
-    )
-    df_return.columns = colnames
-    X_return = df_return.iloc[:, 1:-1]
-    return {
-        "df_return": df_return,
-        "X_return": X_return
-    }
 
-
+model_factory = ModelRegistry(
+  ntree = 150,
+  ridge_alpha = 0.25,
+  nthread = 1, maxit = 200, max_depth = 5,
+  gamma = 0.25, eta = 0.15, mlp_hidden_size = 4,
+  mlp_decay = 1e-5, mlp_max_iter = 500, mlp_trace = False,
+  mlp_max_coef_reg = 10000, mlp_max_coef_clf = 10000,
+  warn_xgb_labels = True, positive_class = 1
+)
+model_registry = model_factory.as_r_style_dict()
 
 
 def permTest(mse_list_val, mse_list_pred, n_perm = 5000, seed = 2026):
@@ -112,7 +90,11 @@ def infer_response_type(Y):
 
 
 
-def PermValTest(df_exist, df_new, model_component, loss, test_size = 0.3, alpha = 0.05, B = 200, n_perm = 5000, seed = 2026):
+
+
+
+def PermValTest(df_exist, df_new, model_class, model_component,
+ loss, test_size = 0.3, alpha = 0.05, B = 200, n_perm = 5000, seed = 2026):
     """
     Permutation Test for Distribution Shift via comparing the 
     mean of validation error and test error:
@@ -129,27 +111,29 @@ def PermValTest(df_exist, df_new, model_component, loss, test_size = 0.3, alpha 
     model = model_class[model_component]
     n_exist, p = df_exist.shape
     n_new = df_new.shape[0]
-    X_exist = df_exist.iloc[:, :-1]
     Y_exist = df_exist.iloc[:, -1]
-    X_new = df_new.iloc[:, :-1]
-    Y_new = df_new.iloc[:, -1]
     response_type = infer_response_type(Y_exist)
     #Checking whether it aligns, or it would stop:
     pval_list = np.zeros(B)
     for i in range(B):
-        X_train, Y_train, X_val, Y_val = train_test_split(
-            X_exist, Y_exist, test_size = test_size,
-            random_state = seed
-        )
+        df_exist_B = df_exist.sample(frac = 1, random_state = seed + i).reset_index(drop = True)
+        df_new_B = df_new.sample(frac = 1, random_state = seed + i).reset_index(drop = True)
+        X_exist = df_exist_B.iloc[:, :-1]
+        Y_exist = df_exist_B.iloc[:, -1]
+        X_new = df_new_B.iloc[:, :-1]
+        Y_new = df_new_B.iloc[:, -1]
+        X_train, X_val, Y_train, Y_val = train_test_split(
+          X_exist, Y_exist, test_size = test_size,
+          random_state = seed)
         fitted_model = model['fit'](
-            X_train, Y_train, 
+            X_train, Y_train, seed = seed + B * i
         )
         pred_val = model['predict'](
-            fit = fitted_model,
+            fit_obj = fitted_model,
             X_new = X_val
         )
         pred_test = model['predict'](
-            fit = fitted_model, 
+            fit_obj = fitted_model, 
             X_new = X_new
         )
         p_one, _ = permTest(
@@ -157,55 +141,29 @@ def PermValTest(df_exist, df_new, model_component, loss, test_size = 0.3, alpha 
             loss(Y_val, pred_val)
         )
         pval_list[i] = p_one
+        print(p_one)
     power = float(np.mean([1 if t < alpha else 0 for t in pval_list]))
     return power
 
-def MSE(y_pred, y_target):
+def L2(y_pred, y_target):
     return ((np.array(y_pred) - np.array(y_target))**2).tolist()
-
-#The multinomial l2 metric is that argmin_{t}(Y_{t} - Y_target) ** 2 + \sum_{t}Y_{k!=t}-Y\
-#y_pred: (n, n_c)
-#y_target: ranges from 1 to n_c
-def l2_multinomial(y_pred, y_target):
-    n = y_pred.shape[0]
-    c = y_pred.shape[1]
-    y_true = np.zeros((n, c))
-    y_target_index = (y_target - 1).astype(int)
-    y_true[np.arange(n), y_target_index] = 1
-    l2_loss = np.sum((y_true - y_pred) ** 2, axis = 1)
-    return l2_loss
-
 
 #Testing, for continuous 
 df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
-    cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
-df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
-    cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
-RFPerm(df_exist, df_new, loss = MSE, B = 100)
-
-#Binary Outcome:
-df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
-    cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
-df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
-    cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
-df_exist.iloc[:, -1] = np.concatenate([np.zeros(500), np.ones(500)])
-df_new.iloc[:, -1] = np.concatenate([np.ones(500), np.zeros(500)])
-RFPerm(df_exist, df_new, loss = MSE, B = 100)
-
-
-#Multinomial Outcome:
-df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
     cor = 0.3, n_nuisance = 12, eps = 3)['df_return'].iloc[:, 1:]
-df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
+df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
     cor = 0.3, n_nuisance = 12, eps = 3)['df_return'].iloc[:, 1:]
-df_exist.iloc[:, -1] = np.random.choice(np.arange(1, 5), size=1000)
-df_new.iloc[:, -1] = np.random.choice(np.arange(1, 5), size=1000)
-RFPerm(df_exist, df_new, loss = l2_multinomial, B = 100)
+
+PermValTest(df_exist, df_new,  
+ model_class = model_registry,
+ model_component = 'xgb_regressor',
+ loss = L2,
+ B = 75)
 
 
-
-
-
-
-
+PermValTest(df_exist, df_new,  
+ model_class = model_registry,
+ model_component = 'ridge_regressor',
+ loss = L2,
+ B = 75)
 
