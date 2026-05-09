@@ -4,12 +4,13 @@ import sklearn
 import numpy as np
 import pandas as pd
 import xgboost
+from scipy.stats import combine_pvalues
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.model_selection import RandomizedSearchCV, train_test_split
 from sklearn.pipeline import Pipeline
 from typing import Iterable, Optional, Tuple, Union
-from scipy.stats import multivariate_normal
+from scipy.stats import multivariate_normal, chi2, t
 from model_registry_class import ModelRegistry
 
 #Generalize this to a general purposed permutation test where the mean of the validation error and the
@@ -112,6 +113,7 @@ def infer_response_type(Y):
 
 
 
+
 def PermValTest(df_exist, df_new, model_component, loss, test_size = 0.3, alpha = 0.05, B = 200, n_perm = 5000, seed = 2026):
     """
     Permutation Test for Distribution Shift via comparing the 
@@ -175,6 +177,25 @@ def l2_multinomial(y_pred, y_target):
     l2_loss = np.sum((y_true - y_pred) ** 2, axis = 1)
     return l2_loss
 
+#The p-value aggregation procedure:
+'''
+Lancaster's procedure for the aggregation of the p-values:
+(1) p-value lists: chi(sum(chi(1-p_value, weights)))
+(2) weights for each of the p-value
+'''
+def lancaster_agg(p_values, weights):
+    p_values = np.array(p_values)
+    weights = np.array(weights)
+    chi_stats = stats.chi2.ppf(1 - p_values, df = weights)
+    total_stats = np.sum(chi_stats)
+    total_df = np.sum(weights)
+    p_value_combined = 1 - stats.chi2.cdf(total_stats, df = total_df)
+    return p_value_combined
+
+
+def bidir_adj(df_exist, df_new, )    
+    
+
 
 #Testing, for continuous 
 df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
@@ -182,6 +203,12 @@ df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],
 df_new = LM_generation(n = 1000, beta_hat = [1,1,1,1,0,0,0,0],
     cor = 0.3, n_nuisance = 12, eps = 3)['df_return']
 RFPerm(df_exist, df_new, loss = MSE, B = 100)
+
+
+
+
+
+
 
 #Binary Outcome:
 df_exist = LM_generation(n = 1000, beta_hat = [1,1,1,1,1,1,1,1],

@@ -1,5 +1,4 @@
-#RFPerm Generalized:
-#PermuCATE vimp with the R-risk:
+#RFPerm Generalize to an arbitrary ML model:
 import os
 import statistics
 import sklearn
@@ -167,3 +166,4 @@ PermValTest(df_exist, df_new,
  loss = L2,
  B = 75)
 
+PermVal

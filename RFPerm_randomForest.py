@@ -127,6 +127,8 @@ def RFPerm(df_exist, df_new, loss,
     - alpha:            Significance Level
     - n_perm:           Number of the permutation
     - seed:             Random Seed
+    Return:
+    - p_value:          Results of Significance.
     """
     X_exist = df_exist.iloc[:, :-1]
     Y_exist = df_exist.iloc[:, -1]
@@ -200,6 +202,17 @@ def RFPerm(df_exist, df_new, loss,
         pval_list[i] = p_one
     power = float(np.mean([1 if float(p) < alpha else 0 for p in pval_list]))
     return power
+
+'''
+Bidirectional Adjustment for the permutation test:
+- 
+'''
+def bidir(df_exist, df_new, method = 'stouffer'):
+    p_value_for = RFPerm(df_exist, df_new, method = method)
+    p_value_bac = RFPerm(df_exist, df_new, method = method)
+    p_value_bidir = combine_pvalues([p_value_for, p_value_bac], method = method)
+    return p_value_bidir
+
 
 
 
