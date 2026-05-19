@@ -5,3 +5,6 @@ Conduct hypothesis testing procedure for distribution shift via Comparing the me
 ### All the benchmark methods are re-implemented in Python 
 benchmark_method_stats.py(All of the statistical methods) \\ 
 benchmark_method_autotst.py(Auto Machine Learning Two-sample Test)
+
+## Online Extension:
+### The online extension for the RFPerm is in onlineExtension\scr\ with the empirical p-value evaluation procedure.
