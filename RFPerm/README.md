@@ -39,6 +39,8 @@ p
 
 - Run tests: `devtools::test()`
 - Full check: `devtools::check()`
+- Correlation Decay Demonstration for the Gradient Boosting Decision Trees: LongTermCorrelation_Demonstration.py
+
 
 ## Notes
 
