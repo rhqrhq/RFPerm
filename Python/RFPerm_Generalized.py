@@ -166,4 +166,3 @@ PermValTest(df_exist, df_new,
  loss = L2,
  B = 75)
 
-PermVal
